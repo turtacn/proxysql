@@ -6,14 +6,14 @@ import (
 
 	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/server"
-	"github.com/dolthub/go-mysql-server/sqle"
+	"github.com/dolthub/go-mysql-server/sql"
 )
 
-// MyAuthenticator 实现了 server.UserAuthenticator 接口，
-// 只允许用户名为 "root"、密码为 "123" 的连接。
+// MyAuthenticator 实现 server.UserAuthenticator 接口，
+// 仅允许用户名为 "root"，密码为 "123" 的连接。
 type MyAuthenticator struct{}
 
-// Authenticate 检查用户名和密码
+// Authenticate 检查用户名、主机和密码
 func (a *MyAuthenticator) Authenticate(ctx context.Context, user, host, password string) (bool, error) {
 	if user == "root" && password == "123" {
 		return true, nil
@@ -24,20 +24,24 @@ func (a *MyAuthenticator) Authenticate(ctx context.Context, user, host, password
 func main() {
 	ctx := context.Background()
 
-	// 创建一个名为 "tpcc" 的内存数据库
+	// 创建一个内存数据库 "tpcc"
+	// 注意：tpcc-mysql 脚本会执行 "CREATE DATABASE IF NOT EXISTS tpcc"，
+	// 本示例预先创建该数据库，若数据库已存在则 DDL 不会报错。
 	tpccDB := memory.NewDatabase("tpcc")
 
-	// 使用 NewDatabaseProvider 将数据库打包成提供者，
-	// 这里 provider 内部会支持基本的 DDL/DML 操作
-	provider := sqle.NewDatabaseProvider(tpccDB)
-	// 添加 information_schema 数据库，便于客户端查询系统信息
-	provider.AddDatabase(memory.NewInformationSchemaDatabase(provider))
+	// 使用预先创建的数据库构建引擎
+	// NewDefault 接受一个或多个 sql.Database，内部会生成一个 Catalog，
+	// 后续支持 CREATE DATABASE、DDL、DML 等操作。
+	engine, err := sql.NewDefault(tpccDB)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// 创建 SQL 引擎，后续所有 SQL 语句均由此引擎解析执行
-	engine := sqle.NewDefault(provider)
+	// 如果需要支持 information_schema 查询，可以将其加入 Catalog，
+	// 例如：
+	// engine.Catalog.RegisterDatabase(memory.NewInformationSchemaDatabase(engine.Catalog))
 
-	// 创建 MySQL 协议服务端
-	// 设置监听地址、认证器以及显示的服务器版本
+	// 创建 MySQL 协议服务端，设置监听地址、认证器和显示的服务器版本
 	srv, err := server.NewDefaultServer(engine,
 		server.WithAddress("127.0.0.1:3306"),
 		server.WithAuthenticator(&MyAuthenticator{}),
@@ -48,11 +52,9 @@ func main() {
 	}
 
 	log.Println("MySQL 模拟服务器已启动，监听 127.0.0.1:3306")
-	// 启动服务（此调用会阻塞）
 	if err := srv.Start(); err != nil {
 		log.Fatal(err)
 	}
 
-	// 保持 ctx 不退出（一般 Start() 已阻塞，本示例不会走到这里）
 	<-ctx.Done()
 }
