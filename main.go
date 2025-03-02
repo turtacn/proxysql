@@ -43,7 +43,7 @@ func createTpccDatabase() *memory.Database {
 	dbName := "tpcc"
 	db := memory.NewDatabase(dbName)
 
-	sqlFiles := []string{"create_table.sql", "add_fkey_idx.sql"} // Assuming these files are in same directory
+	sqlFiles := []string{"tpcc-mysql/create_table.sql", "tpcc-mysql/add_fkey_idx.sql"} // Assuming these files are in same directory
 	ctx := sql.NewEmptyContext()
 	e := sqle.NewDefault(sql.NewDatabaseProvider(db, information_schema.NewInformationSchemaDatabase()))
 
@@ -56,6 +56,7 @@ func createTpccDatabase() *memory.Database {
 
 		for _, query := range queries {
 			query = strings.TrimSpace(query)
+			fmt.Println(query)
 			if query == "" {
 				continue
 			}
