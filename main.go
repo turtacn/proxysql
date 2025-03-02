@@ -1,60 +1,77 @@
+// main.go
 package main
 
 import (
-	"context"
+	"fmt"
 	"log"
+	"os"
+	"strings"
 
+	sqle "github.com/dolthub/go-mysql-server"
+	"github.com/dolthub/go-mysql-server/auth"
 	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/server"
 	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql/information_schema"
 )
 
-// MyAuthenticator 实现 server.UserAuthenticator 接口，
-// 仅允许用户名为 "root"，密码为 "123" 的连接。
-type MyAuthenticator struct{}
+func main() {
+	engine := sqle.NewDefault(
+		sql.NewDatabaseProvider(
+			createTpccDatabase(),
+			information_schema.NewInformationSchemaDatabase(),
+		))
 
-// Authenticate 检查用户名、主机和密码
-func (a *MyAuthenticator) Authenticate(ctx context.Context, user, host, password string) (bool, error) {
-	if user == "root" && password == "123" {
-		return true, nil
+	config := server.Config{
+		Protocol: "tcp",
+		Address:  "localhost:3306",
+		Auth:     auth.NewNativeSingle("root", "123", auth.AllPermissions),
 	}
-	return false, nil
+
+	s, err := server.NewDefaultServer(config, engine)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("MySQL server listening on localhost:3306")
+	if err := s.Start(); err != nil {
+		log.Fatalf("Server error: %v", err)
+	}
 }
 
-func main() {
-	ctx := context.Background()
+func createTpccDatabase() *memory.Database {
+	dbName := "tpcc"
+	db := memory.NewDatabase(dbName)
 
-	// 创建一个内存数据库 "tpcc"
-	// 注意：tpcc-mysql 脚本会执行 "CREATE DATABASE IF NOT EXISTS tpcc"，
-	// 本示例预先创建该数据库，若数据库已存在则 DDL 不会报错。
-	tpccDB := memory.NewDatabase("tpcc")
+	sqlFiles := []string{"create_table.sql", "add_fkey_idx.sql"} // Assuming these files are in same directory
+	ctx := sql.NewEmptyContext()
+	e := sqle.NewDefault(sql.NewDatabaseProvider(db, information_schema.NewInformationSchemaDatabase()))
 
-	// 使用预先创建的数据库构建引擎
-	// NewDefault 接受一个或多个 sql.Database，内部会生成一个 Catalog，
-	// 后续支持 CREATE DATABASE、DDL、DML 等操作。
-	engine, err := sql.NewDefault(tpccDB)
-	if err != nil {
-		log.Fatal(err)
+	for _, file := range sqlFiles {
+		sqlContent, err := os.ReadFile(file)
+		if err != nil {
+			panic(fmt.Sprintf("Error reading SQL file %s: %v. Please make sure %s and add_fkey_idx.sql are in the same directory as main.go", file, err, "create_table.sql"))
+		}
+		queries := strings.Split(string(sqlContent), ";")
+
+		for _, query := range queries {
+			query = strings.TrimSpace(query)
+			if query == "" {
+				continue
+			}
+			_, _, err = e.Query(ctx, fmt.Sprintf("USE %s;", dbName))
+			if err != nil {
+				panic(fmt.Sprintf("Error using database %s: %v", dbName, err))
+			}
+
+			_, _, err = e.Query(ctx, query+";")
+			if err != nil {
+				fmt.Printf("Error executing SQL: %s\n", query) // Print the failing query
+				panic(fmt.Sprintf("Error executing SQL from %s: %v", file, err))
+			}
+		}
+		fmt.Printf("Executed SQL from %s\n", file)
 	}
-
-	// 如果需要支持 information_schema 查询，可以将其加入 Catalog，
-	// 例如：
-	// engine.Catalog.RegisterDatabase(memory.NewInformationSchemaDatabase(engine.Catalog))
-
-	// 创建 MySQL 协议服务端，设置监听地址、认证器和显示的服务器版本
-	srv, err := server.NewDefaultServer(engine,
-		server.WithAddress("127.0.0.1:3306"),
-		server.WithAuthenticator(&MyAuthenticator{}),
-		server.WithServerVersion("8.0.28"),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	log.Println("MySQL 模拟服务器已启动，监听 127.0.0.1:3306")
-	if err := srv.Start(); err != nil {
-		log.Fatal(err)
-	}
-
-	<-ctx.Done()
+	fmt.Println("TPCC database and tables created.")
+	return db
 }
