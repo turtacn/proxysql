@@ -47,7 +47,7 @@ MySQL server listening on localhost:3306
 ```
 
 
-## 等价的过程
+## 兼容性示例（tpcc_load部分）
 
 ```shell script
 ubuntu $ ./tpcc_load -h 127.0.0.1 -P 3306 -u root -p123 -d tpcc -w 1
