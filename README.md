@@ -104,4 +104,20 @@ echo "运行 TPC-C 测试 (300 终端并发)..."
 echo "运行 TPC-C 测试 (500 终端并发)..."
 ./tpcc_start -h 127.0.0.1 -P 3306 -u root -p123 -d tpcc -w 100 -c 500 -r 10 > tpcc_500_terminals.log
 
+# 分析 TPC-C 测试结果
+echo "分析 TPC-C 测试结果..."
+ 
+# 获取 100 终端并发的吞吐量-TPCC_100_TMP_C=$(grep " TpmC" tpcc_100_terminals.log | awk '{sum+=$4} END {print sum}')
+TPCC_100_TMP_C=$(grep " TpmC" tpcc_100_terminals.log)
+echo "100 终端并发的吞吐量 (tmpC): ${TPCC_100_TMP_C}"
+ 
+# 获取 300 终端并发的吞吐量
+TPCC_300_TMP_C=$(grep "TpmC" tpcc_300_terminals.log)
+echo "300 终端并发的吞吐量 (tmpC): ${TPCC_300_TMP_C}"
+ 
+# 获取 500 终端并发的吞吐量
+TPCC_500_TMP_C=$(grep "TpmC" tpcc_500_terminals.log)
+echo "500 终端并发的吞吐量 (tmpC): ${TPCC_500_TMP_C}"
+ 
+echo "完成！"
 ```
