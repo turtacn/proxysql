@@ -1,6 +1,6 @@
 # proxysql
 
-当前就一个功能，通过一个golang mysql server in-memory 去接管实际的mysql server 完成tpcc测试（https://github.com/Percona-Lab/tpcc-mysql.git），作为tpcc的性能上限判定
+当前就一个功能，通过一个golang mysql server in-memory 去接管实际的mysql server 完成tpcc测试（https://github.com/Percona-Lab/tpcc-mysql.git）， 作为tpcc的性能上限判定
 
 ## 构建
 
