@@ -1,8 +1,14 @@
 # proxysql
 
-当前就一个功能，通过一个golang mysql server in-memory 去接管实际的mysql server 完成tpcc测试（https://github.com/Percona-Lab/tpcc-mysql.git）， 作为tpcc的性能上限判定
+当前就一个功能，通过一个golang mysql server in-memory 去接管实际的mysql server 完成tpcc测试（https://github.com/Percona-Lab/tpcc-mysql.git）
+作为tpcc的性能上限判定
 
-## 构建
+## 构建tpcc tools
+```shell script
+cd tpcc-mysql/src && make
+```
+
+## 构建proxysql
 
 指定goalng 版本 1.20.2，见 gobin.sh
 指 github.com/dolthub/go-mysql-server 版本 v0.11.0, go.mod
