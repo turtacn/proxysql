@@ -80,14 +80,7 @@ Loading Item
 
 
 ```shell script
-# 创建 tpcc 数据库
-echo "创建 tpcc 数据库..."
-mysql -h 127.0.0.1 -P 3306 -u root -p123 -e "CREATE DATABASE IF NOT EXISTS tpcc;"
-echo "初始化 tpcc 表结构..."
-mysql -h 127.0.0.1 -P 3306 -u root -p123 -D tpcc < create_table.sql
-mysql -h 127.0.0.1 -P 3306 -u root -p123 -D tpcc < add_fkey_idx.sql
  
-# 快速验证 -w 100 ==> -w 1
 # 加载 TPC-C 数据 (100 仓库)
 echo "加载 TPC-C 数据 (100 仓库)..."
 ./tpcc_load -h 127.0.0.1 -P 3306 -u root -p123 -d tpcc -w 100
