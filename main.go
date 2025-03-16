@@ -25,7 +25,6 @@ func main() {
 	config := server.Config{
 		Protocol: "tcp",
 		Address:  "localhost:3306",
-		Auth:     nil, //auth.NewNativeSingle("root", "123", auth.AllPermissions),
 	}
 
 	s, err := server.NewServer(config, engine, memory.NewSessionBuilder(databaseProvider), nil)
@@ -43,7 +42,7 @@ func createTpccDatabase() *memory.Database {
 	dbName := "tpcc"
 	db := memory.NewDatabase(dbName)
 
-	sqlFiles := string{"tpcc-mysql/create_table.sql", "tpcc-mysql/add_fkey_idx.sql"} // Assuming these files are in same directory
+	sqlFiles := []string{"tpcc-mysql/create_table.sql", "tpcc-mysql/add_fkey_idx.sql"} // Assuming these files are in same directory
 	ctx := sql.NewEmptyContext()
 	e := sqle.NewDefault(sql.NewDatabaseProvider(db, information_schema.NewInformationSchemaDatabase()))
 
@@ -60,12 +59,12 @@ func createTpccDatabase() *memory.Database {
 			if query == "" {
 				continue
 			}
-			_, _, err = e.Query(ctx, fmt.Sprintf("USE %s;", dbName))
+			_, _, _, err = e.Query(ctx, fmt.Sprintf("USE %s;", dbName))
 			if err != nil {
 				panic(fmt.Sprintf("Error using database %s: %v", dbName, err))
 			}
 
-			_, _, err = e.Query(ctx, query+";")
+			_, _, _, err = e.Query(ctx, query+";")
 			if err != nil {
 				fmt.Printf("Error executing SQL: %s\n", query) // Print the failing query
 				panic(fmt.Sprintf("Error executing SQL from %s: %v", file, err))
