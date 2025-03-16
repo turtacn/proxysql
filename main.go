@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	sqle "github.com/dolthub/go-mysql-server"
-	"github.com/dolthub/go-mysql-server/auth"
 	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/server"
 	"github.com/dolthub/go-mysql-server/sql"
@@ -16,19 +15,20 @@ import (
 )
 
 func main() {
-	engine := sqle.NewDefault(
-		sql.NewDatabaseProvider(
-			createTpccDatabase(),
-			information_schema.NewInformationSchemaDatabase(),
-		))
+	tpccDB := createTpccDatabase()
+	databaseProvider := sql.NewDatabaseProvider(
+		tpccDB,
+		information_schema.NewInformationSchemaDatabase(),
+	)
+	engine := sqle.NewDefault(databaseProvider)
 
 	config := server.Config{
 		Protocol: "tcp",
 		Address:  "localhost:3306",
-		Auth:     auth.NewNativeSingle("root", "123", auth.AllPermissions),
+		Auth:     nil, //auth.NewNativeSingle("root", "123", auth.AllPermissions),
 	}
 
-	s, err := server.NewDefaultServer(config, engine)
+	s, err := server.NewServer(config, engine, memory.NewSessionBuilder(databaseProvider), nil)
 	if err != nil {
 		panic(err)
 	}
@@ -43,7 +43,7 @@ func createTpccDatabase() *memory.Database {
 	dbName := "tpcc"
 	db := memory.NewDatabase(dbName)
 
-	sqlFiles := []string{"tpcc-mysql/create_table.sql", "tpcc-mysql/add_fkey_idx.sql"} // Assuming these files are in same directory
+	sqlFiles := string{"tpcc-mysql/create_table.sql", "tpcc-mysql/add_fkey_idx.sql"} // Assuming these files are in same directory
 	ctx := sql.NewEmptyContext()
 	e := sqle.NewDefault(sql.NewDatabaseProvider(db, information_schema.NewInformationSchemaDatabase()))
 
