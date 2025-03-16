@@ -18,7 +18,7 @@ go mod tidy
 go build -o proxysql main.go
 ```
 
-## 运行
+## 运行proxysql服务（替换mysql）
 
 ```shell script
 ./proxysql
