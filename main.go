@@ -27,7 +27,7 @@ func main() {
 		Address:  "localhost:3306",
 	}
 
-	s, err := server.NewServer(config, engine, memory.NewSessionBuilder(databaseProvider), nil)
+	s, err := server.NewServer(config, engine, memory.NewSessionBuilder(memory.NewDBProvider(tpccDB)), nil)
 	if err != nil {
 		panic(err)
 	}
