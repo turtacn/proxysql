@@ -38,6 +38,58 @@ func main() {
 	}
 }
 
+
+func createTpccDatabase() *memory.Database {
+	dbName := "tpcc"
+	db := memory.NewDatabase(dbName)
+
+	sqlFiles := map[string]string{
+		"create_table.sql": {},
+		"add_fkey_idx.sql": {},
+	}
+	ctx := sql.NewEmptyContext()
+	e := sqle.NewDefault(sql.NewDatabaseProvider(db, information_schema.NewInformationSchemaDatabase()))
+
+	for filename := range sqlFiles {
+		filePath := fmt.Sprintf("tpcc-mysql/%s", filename) // Assuming files are in tpcc-mysql subdirectory
+		sqlContent, err := os.ReadFile(filePath)
+		if err != nil {
+			panic(fmt.Sprintf("Error reading SQL file %s: %v. Please make sure %s and add_fkey_idx.sql are in the tpcc-mysql subdirectory", filePath, err, "create_table.sql"))
+		}
+		queries := strings.Split(string(sqlContent), ";")
+		for _, query := range queries {
+			query = strings.TrimSpace(query)
+			if query != "" {
+				sqlFiles[filename] = append(sqlFiles[filename], query)
+			}
+		}
+		fmt.Printf("Read SQL from %s\n", filePath)
+	}
+
+	executeQueries := func(queriesstring, filename string) {
+		for _, query := range queries {
+			fmt.Println(query + ";")
+			_, _, _, err = e.Query(ctx, fmt.Sprintf("USE %s;", dbName))
+			if err != nil {
+				panic(fmt.Sprintf("Error using database %s: %v", dbName, err))
+			}
+			_, _, _, err = e.Query(ctx, query+";")
+			if err != nil {
+				fmt.Printf("Error executing SQL from %s: %s\n", filename, query) // Print the failing query
+				panic(fmt.Sprintf("Error executing SQL from %s: %v", filename, err))
+			}
+		}
+		fmt.Printf("Executed SQL from %s\n", filename)
+	}
+
+	executeQueries(sqlFiles["create_table.sql"], "create_table.sql")
+	executeQueries(sqlFiles["add_fkey_idx.sql"], "add_fkey_idx.sql")
+
+	fmt.Println("TPCC database and tables created.")
+	return db
+}
+
+/*
 func createTpccDatabase() *memory.Database {
 	dbName := "tpcc"
 	db := memory.NewDatabase(dbName)
@@ -75,3 +127,4 @@ func createTpccDatabase() *memory.Database {
 	fmt.Println("TPCC database and tables created.")
 	return db
 }
+*/
