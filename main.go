@@ -63,7 +63,7 @@ func createTpccDatabase(dbName string) *memory.Database {
 
 
 	session := sql.WithSession(memory.NewSession(sql.NewBaseSession(),provider))
-	ctx := sql.NewContext(context.Background(), session))
+	ctx := sql.NewContext(context.Background(), session)
 
 
 	engine := sqle.NewDefault(provider)
