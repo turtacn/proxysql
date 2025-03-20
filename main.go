@@ -47,7 +47,16 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println("MySQL server listening on localhost:3306")
+	dsn := fmt.Sprintf(
+		"%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&loc=Local&parseTime=true",
+		username,
+		password,
+		host,
+		port,
+		dbname,
+	)
+
+	fmt.Println(fmt.Sprintf("MySQL server listening on %s", dsn))
 	if err := s.Start(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
