@@ -3,15 +3,14 @@ package main
 
 import (
 	"fmt"
-	"github.com/dolthub/go-mysql-server/sql"
-	"github.com/dolthub/go-mysql-server/sql/information_schema"
 	"log"
 	"os"
 	"strings"
 
-	sqle "github.com/dolthub/go-mysql-server"
 	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/server"
+	"github.com/dolthub/go-mysql-server/sql"
+	sqle "github.com/dolthub/go-mysql-server"
 )
 
 func main() {
@@ -21,79 +20,80 @@ func main() {
 		host     = "localhost"
 		dbname   = "tpcc"
 		port     = 3306
-		err      error
 	)
 
+	// 创建数据库和表
 	db := createTpccDatabase(dbname)
 
-	db.BaseDatabase.EnablePrimaryKeyIndexes()
+	// 创建数据库提供者
 	provider := memory.NewDBProvider(db)
+
+	// 创建引擎时需要指定正确的数据库提供者
 	engine := sqle.NewDefault(provider)
-	mysqlDb := engine.Analyzer.Catalog.MySQLDb
-	mysqlDb.SetEnabled(true)
-	mysqlDb.AddRootAccount()
+
+	// 创建服务器配置
 	config := server.Config{
 		Protocol: "tcp",
 		Address:  fmt.Sprintf("%s:%d", host, port),
 	}
 
+	// 使用memory的会话构建器
 	s, err := server.NewServer(
 		config,
 		engine,
 		memory.NewSessionBuilder(provider),
 		nil,
-		)
+	)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
-	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&loc=Local&parseTime=true",
-		username,
-		password,
-		host,
-		port,
-		dbname,
-	)
-
-	fmt.Println(fmt.Sprintf("MySQL server listening on %s", dsn))
+	fmt.Printf("MySQL server listening on %s:%d\n", host, port)
 	if err := s.Start(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 }
+
 func createTpccDatabase(dbName string) *memory.Database {
 	db := memory.NewDatabase(dbName)
+	provider := memory.NewDBProvider(db)
 
-	sqlFiles := []string{"tpcc-mysql/create_table.sql", "tpcc-mysql/add_fkey_idx.sql"} // Assuming these files are in same directory
-	ctx := sql.NewEmptyContext()
-	e := sqle.NewDefault(sql.NewDatabaseProvider(db, information_schema.NewInformationSchemaDatabase()))
+	// 创建正确的会话上下文
+	ctx := sql.NewContext(sql.WithSession(memory.NewSession(sql.NewBaseSession(), provider)))
+
+	engine := sqle.NewDefault(provider)
+
+	sqlFiles := []string{"tpcc-mysql/create_table.sql", "tpcc-mysql/add_fkey_idx.sql"}
 
 	for _, file := range sqlFiles {
 		sqlContent, err := os.ReadFile(file)
 		if err != nil {
-			panic(fmt.Sprintf("Error reading SQL file %s: %v. Please make sure %s and add_fkey_idx.sql are in the same directory as main.go", file, err, "create_table.sql"))
+			log.Fatalf("Error reading SQL file %s: %v", file, err)
 		}
-		queries := strings.Split(string(sqlContent), ";")
 
+		// 先切换到目标数据库
+		_, _, _, err = engine.Query(ctx, fmt.Sprintf("USE %s;", dbName))
+		if err != nil {
+			log.Fatalf("Error using database: %v", err)
+		}
+
+		queries := strings.Split(string(sqlContent), ";")
 		for _, query := range queries {
 			query = strings.TrimSpace(query)
-			fmt.Println(query)
 			if query == "" {
 				continue
 			}
-			_, _, _, err = e.Query(ctx, fmt.Sprintf("USE %s;", dbName))
-			if err != nil {
-				panic(fmt.Sprintf("Error using database %s: %v", dbName, err))
-			}
 
-			_, _, _, err = e.Query(ctx, query+";")
+			// 执行前打印调试信息
+			log.Printf("Executing query: %s\n", query)
+			_, _, _, err = engine.Query(ctx, query)
 			if err != nil {
-				fmt.Printf("Error executing SQL: %s\n", query) // Print the failing query
-				panic(fmt.Sprintf("Error executing SQL from %s: %v", file, err))
+				log.Fatalf("Error executing query '%s': %v", query, err)
 			}
 		}
-		fmt.Printf("Executed SQL from %s\n", file)
+		log.Printf("Successfully executed %s", file)
 	}
-	fmt.Println("TPCC database and tables created.")
+
+	log.Println("TPCC database and tables created successfully.")
 	return db
 }
