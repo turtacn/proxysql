@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -59,7 +60,11 @@ func createTpccDatabase(dbName string) *memory.Database {
 	provider := memory.NewDBProvider(db)
 
 	// 创建正确的会话上下文
-	ctx := sql.NewContext(sql.WithSession(memory.NewSession(sql.NewBaseSession(), provider)))
+
+
+	session := sql.WithSession(memory.NewSession(sql.NewBaseSession(),provider))
+	ctx := sql.NewContext(context.Background(), session))
+
 
 	engine := sqle.NewDefault(provider)
 
