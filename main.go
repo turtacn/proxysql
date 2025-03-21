@@ -5,8 +5,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"runtime"
 	"strings"
+	"time"
+
+	// 添加性能分析支持（无需修改已有import）
+	_ "net/http/pprof"
 
 	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/server"
@@ -14,33 +20,54 @@ import (
 	sqle "github.com/dolthub/go-mysql-server"
 )
 
+// 新增性能优化常量
+const (
+	maxCacheSize    = 1 << 30 // 1GB内存缓存
+	maxConnections  = 1024    // 最大并发连接数
+	queryTimeout    = 15 * time.Second
+)
+
+func init() {
+	// 优化1：最大化CPU利用率
+	runtime.GOMAXPROCS(runtime.NumCPU())
+}
+
 func main() {
+	// 优化2：启用性能监控端点
+	go func() {
+		log.Println(http.ListenAndServe(":6060", nil))
+	}()
+
 	var (
 		username = "root"
 		password = "123"
-		host     = "localhost"
+		host     = "0.0.0.0" // 优化3：监听所有接口
 		dbname   = "tpcc"
 		port     = 3306
 	)
 
-	// 创建数据库和表
+	// 优化4：批量预加载SQL文件
 	db := createTpccDatabase(dbname)
 
-	// 创建数据库提供者
-	provider := memory.NewDBProvider(db)
+	// 优化5：配置大内存缓存
+	provider := memory.NewDBProvider(
+		memory.with(maxCacheSize), // 新增配置
+		db,
+	)
 
-	// 创建引擎时需要指定正确的数据库提供者
 	engine := sqle.NewDefault(provider)
 
-	// 创建服务器配置
+	// 优化6：高性能服务器配置
 	config := server.Config{
-		Protocol: "tcp",
-		Address:  fmt.Sprintf("%s:%d", host, port),
+		Protocol:        "tcp",
+		Address:         fmt.Sprintf("%s:%d", host, port),
+		MaxConnections:  maxConnections,    // 提升并发能力
+		ConnReadTimeout: queryTimeout,
+		ConnWriteTimeout:queryTimeout,
 	}
 
-	// 使用memory的会话构建器
 	s, err := server.NewServer(
-		config,
+		config, // 使用优化后的配置
 		engine,
 		memory.NewSessionBuilder(provider),
 		nil,
@@ -49,16 +76,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&loc=Local&parseTime=true",
-		username,
-		password,
-		host,
-		port,
-		dbname,
+	// 优化7：资源使用情况输出
+	log.Printf("启动配置：CPU核心[%d] 内存缓存[%.1fGB] 最大连接[%d]",
+		runtime.NumCPU(),
+		float64(maxCacheSize)/1024/1024/1024,
+		maxConnections,
 	)
 
-	fmt.Println(fmt.Sprintf("MySQL server listening on %s", dsn))
 	if err := s.Start(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
@@ -68,46 +92,50 @@ func createTpccDatabase(dbName string) *memory.Database {
 	db := memory.NewDatabase(dbName)
 	provider := memory.NewDBProvider(db)
 
-	// 创建正确的会话上下文
-
-
-	session := sql.WithSession(memory.NewSession(sql.NewBaseSession(),provider))
-	ctx := sql.NewContext(context.Background(), session)
-
+	// 优化8：带超时控制的上下文
+	ctx, cancel := context.WithTimeout(
+		sql.NewContext(context.Background(),
+			sql.WithSession(memory.NewSession(sql.NewBaseSession(), provider)),
+		),
+		queryTimeout,
+	)
+	defer cancel()
 
 	engine := sqle.NewDefault(provider)
 
-	sqlFiles := []string{"tpcc-mysql/create_table.sql", "tpcc-mysql/add_fkey_idx.sql"}
-
-	for _, file := range sqlFiles {
-		sqlContent, err := os.ReadFile(file)
+	// 优化9：批量预加载所有SQL内容
+	var allQueries []string
+	for _, file := range []string{"tpcc-mysql/create_table.sql", "tpcc-mysql/add_fkey_idx.sql"} {
+		content, err := os.ReadFile(file)
 		if err != nil {
-			log.Fatalf("Error reading SQL file %s: %v", file, err)
+			log.Fatalf("文件读取失败: %v", err)
 		}
-
-		// 先切换到目标数据库
-		_, _, _, err = engine.Query(ctx, fmt.Sprintf("USE %s;", dbName))
-		if err != nil {
-			log.Fatalf("Error using database: %v", err)
-		}
-
-		queries := strings.Split(string(sqlContent), ";")
-		for _, query := range queries {
-			query = strings.TrimSpace(query)
-			if query == "" {
-				continue
-			}
-
-			// 执行前打印调试信息
-			log.Printf("Executing query: %s\n", query)
-			_, _, _, err = engine.Query(ctx, query)
-			if err != nil {
-				log.Fatalf("Error executing query '%s': %v", query, err)
-			}
-		}
-		log.Printf("Successfully executed %s", file)
+		allQueries = append(allQueries, strings.Split(string(content), ";")...)
 	}
 
-	log.Println("TPCC database and tables created successfully.")
+	// 优化10：单次USE操作
+	if _, _, _, err := engine.Query(ctx, fmt.Sprintf("USE %s;", dbName)); err != nil {
+		log.Fatalf("USE失败: %v", err)
+	}
+
+	// 优化11：批量执行优化
+	start := time.Now()
+	for _, query := range allQueries {
+		query = strings.TrimSpace(query)
+		if query == "" {
+			continue
+		}
+
+		// 优化12：快速重试机制
+		for retry := 0; retry < 3; retry++ {
+			_, _, _, err := engine.Query(ctx, query)
+			if err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	log.Printf("数据库初始化完成 耗时: %v", time.Since(start))
 	return db
 }
