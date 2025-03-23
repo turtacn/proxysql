@@ -51,7 +51,7 @@ func main() {
 
 	// 优化5：配置大内存缓存
 	provider := memory.NewDBProvider(
-		memory.with(maxCacheSize), // 新增配置
+		// 新增配置 大页目前不支持 TODO
 		db,
 	)
 
@@ -83,6 +83,16 @@ func main() {
 		maxConnections,
 	)
 
+	dsn := fmt.Sprintf(
+		"MySQL server listening on %s:%s@tcp(%s:%d)/%s?charset=utf8mb4&loc=Local&parseTime=true",
+		username,
+		password,
+		host,
+		port,
+		dbname,
+	)
+
+	log.Println(dsn)
 	if err := s.Start(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
@@ -93,7 +103,7 @@ func createTpccDatabase(dbName string) *memory.Database {
 	provider := memory.NewDBProvider(db)
 
 	// 优化8：带超时控制的上下文
-	ctx, cancel := context.WithTimeout(
+	bkground_ctx, cancel := context.WithTimeout(
 		sql.NewContext(context.Background(),
 			sql.WithSession(memory.NewSession(sql.NewBaseSession(), provider)),
 		),
@@ -101,7 +111,10 @@ func createTpccDatabase(dbName string) *memory.Database {
 	)
 	defer cancel()
 
+
+
 	engine := sqle.NewDefault(provider)
+
 
 	// 优化9：批量预加载所有SQL内容
 	var allQueries []string
@@ -112,6 +125,10 @@ func createTpccDatabase(dbName string) *memory.Database {
 		}
 		allQueries = append(allQueries, strings.Split(string(content), ";")...)
 	}
+
+
+	session := sql.WithSession(memory.NewSession(sql.NewBaseSession(),provider))
+	ctx := sql.NewContext(bkground_ctx, session)
 
 	// 优化10：单次USE操作
 	if _, _, _, err := engine.Query(ctx, fmt.Sprintf("USE %s;", dbName)); err != nil {
