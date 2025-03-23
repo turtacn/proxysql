@@ -1,0 +1,11 @@
+# 排除所有文件
+**
+
+# 允许 Dockerfile 本身（如果需要）
+!Dockerfile
+
+# 允许 proxysql 可执行文件
+!proxysql
+
+# 允许 tpcc-mysql 目录及其所有内容
+!tpcc-mysql/
