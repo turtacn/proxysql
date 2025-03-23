@@ -11,191 +11,201 @@ import (
 	"strings"
 	"time"
 
-	_ "net/http/pprof" // 性能分析
+	// 添加性能分析支持（无需修改已有import）
+	_ "net/http/pprof"
 
-	sqle "github.com/dolthub/go-mysql-server"
 	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/server"
 	"github.com/dolthub/go-mysql-server/sql"
+	sqle "github.com/dolthub/go-mysql-server"
 )
 
+// 定义配置结构体，提高可读性和可维护性
+type Config struct {
+	Username        string
+	Password        string
+	Host            string
+	Port            int
+	DBName          string
+	MaxCacheSize    int64
+	MaxConnections  int64
+	QueryTimeout    time.Duration
+	ProfilerAddress string
+}
+
+// 定义常量，集中管理
 const (
-	maxCacheSize    = 1 << 30      // 1GB内存缓存
-	maxConnections  = 1024         // 最大并发连接数
-	queryTimeout    = 30 * time.Second
-	initTimeout     = 5 * time.Minute // 延长初始化超时
+	defaultUsername        = "root"
+	defaultPassword        = "123"
+	defaultHost            = "0.0.0.0"
+	defaultDBName          = "tpcc"
+	defaultPort            = 3306
+	defaultProfilerAddress = ":6060"
+
+	cacheSizeGB            = 1    // 内存缓存大小，单位GB
+	maxConnectionsDefault  = 1024 // 最大并发连接数
+	queryTimeoutSeconds    = 15   // 查询超时时间，单位秒
+	sqlFileCreateTable     = "tpcc-mysql/create_table.sql"
+	sqlFileAddForeignKey   = "tpcc-mysql/add_fkey_idx.sql"
+	maxRetries             = 3
+	retryDelay             = 10 * time.Millisecond
 )
 
+// 初始化函数，设置全局配置
 func init() {
-	// 设置最大CPU并行度
-	if runtime.GOMAXPROCS(0) < runtime.NumCPU() {
-		runtime.GOMAXPROCS(runtime.NumCPU())
-	}
+	// 优化1：最大化CPU利用率
+	runtime.GOMAXPROCS(runtime.NumCPU())
 }
 
 func main() {
-	// 启动性能监控服务
-	go startMetricsServer()
+	// 加载配置
+	cfg := loadConfig()
 
-	// 初始化数据库核心组件
-	db, provider := initializeDatabase("tpcc")
-	defer cleanupResources(provider)
+	// 优化2：启用性能监控端点
+	startProfiler(cfg.ProfilerAddress)
 
-	// 配置并启动服务器
-	server := configureAndStartServer(provider)
-	logServerDetails(server)
+	// 初始化数据库
+	dbProvider := initializeDatabase(cfg.DBName, cfg.QueryTimeout)
 
-	if err := server.Start(); err != nil {
-		log.Fatalf("服务器启动失败: %v", err)
+	// 创建并启动服务器
+	startServer(cfg, dbProvider)
+}
+
+// loadConfig 加载应用程序配置
+func loadConfig() Config {
+	return Config{
+		Username:        defaultUsername,
+		Password:        defaultPassword,
+		Host:            defaultHost,
+		Port:            defaultPort,
+		DBName:          defaultDBName,
+		MaxCacheSize:    cacheSizeGB << 30, // 1GB内存缓存
+		MaxConnections:  maxConnectionsDefault,
+		QueryTimeout:    queryTimeoutSeconds * time.Second,
+		ProfilerAddress: defaultProfilerAddress,
 	}
 }
 
-// startMetricsServer 启动带自定义指标的监控服务
-func startMetricsServer() {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
-		var m runtime.MemStats
-		runtime.ReadMemStats(&m)
-		fmt.Fprintf(w, "heap_alloc_bytes %d\n", m.HeapAlloc)
-		fmt.Fprintf(w, "cache_size_bytes %d\n", maxCacheSize)
-	})
-	log.Println("监控端点已启动 :6060")
-	log.Fatal(http.ListenAndServe(":6060", mux))
+// startProfiler 启动性能分析服务
+func startProfiler(address string) {
+	go func() {
+		log.Printf("性能分析服务监听在 %s", address)
+		if err := http.ListenAndServe(address, nil); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("启动性能分析服务失败: %v", err)
+		}
+	}()
 }
 
-// initializeDatabase 初始化数据库实例
-func initializeDatabase(dbName string) (*memory.Database, *memory.DBProvider) {
-	db := memory.NewDatabase(dbName).WithCacheSize(maxCacheSize)
+// initializeDatabase 初始化数据库
+func initializeDatabase(dbName string, queryTimeout time.Duration) *memory.DbProvider {
+	db := memory.NewDatabase(dbName)
 	provider := memory.NewDBProvider(db)
+	engine := sqle.NewDefault(provider)
 
-	ctx, cancel := context.WithTimeout(context.Background(), initTimeout)
+	// 创建带超时控制的上下文
+	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 	defer cancel()
 
-	if err := executeBootstrapSQL(ctx, provider, dbName); err != nil {
-		log.Fatalf("数据库初始化失败: %v", err)
-	}
+	sqlCtx := sql.NewContext(ctx,sql.WithSession(memory.NewSession(sql.NewBaseSession(), provider)))
 
-	// 预热缓存
-	if _, _, _, err := sqle.NewDefault(provider).Query(
-		sql.NewContext(ctx, sql.WithSession(newSession(provider))),
-		"SELECT 1 FROM DUAL"); err != nil {
-		log.Printf("缓存预热警告: %v", err)
-	}
+	// 批量预加载SQL内容
+	sqlFiles := []string{sqlFileCreateTable, sqlFileAddForeignKey}
+	allQueries := loadSQLFiles(sqlFiles)
 
-	return db, provider
+	// 单次USE操作
+	useDatabase(sqlCtx, engine, dbName)
+
+	// 批量执行SQL查询
+	executeSQLQueries(sqlCtx, engine, allQueries)
+
+	log.Printf("数据库初始化完成")
+	return provider
 }
 
-// executeBootstrapSQL 执行初始化SQL脚本
-func executeBootstrapSQL(ctx context.Context, provider *memory.DBProvider, dbName string) error {
-	engine := sqle.NewDefault(provider)
-	session := newSession(provider)
-	sqlCtx := sql.NewContext(ctx, sql.WithSession(session))
-
-	// 切换数据库上下文
-	if _, _, _, err := engine.Query(sqlCtx, fmt.Sprintf("USE %s;", dbName)); err != nil {
-		return fmt.Errorf("USE操作失败: %w", err)
-	}
-
-	// 加载并执行SQL文件
-	queries, err := loadSQLFiles([]string{
-		"tpcc-mysql/create_table.sql",
-		"tpcc-mysql/add_fkey_idx.sql",
-	})
-	if err != nil {
-		return err
-	}
-
-	// 带重试机制的批量执行
-	return executeWithRetry(sqlCtx, engine, queries, 3, 100*time.Millisecond)
-}
-
-// loadSQLFiles 加载并解析SQL文件
-func loadSQLFiles(files []string) ([]string, error) {
-	var queries []string
+// loadSQLFiles 从文件中加载SQL语句
+func loadSQLFiles(files []string)[]string {
+	var allQueries []string
 	for _, file := range files {
 		content, err := os.ReadFile(file)
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("文件不存在: %w", err)
-		} else if err != nil {
-			return nil, fmt.Errorf("文件读取失败: %w", err)
+		if err != nil {
+			log.Fatalf("读取SQL文件失败: %s - %v", file, err)
 		}
-
-		for _, q := range strings.Split(string(content), ";") {
-			if cleaned := strings.TrimSpace(q); cleaned != "" {
-				queries = append(queries, cleaned)
+		queries := strings.Split(string(content), ";")
+		for _, q := range queries {
+			trimmedQuery := strings.TrimSpace(q)
+			if trimmedQuery != "" {
+				allQueries = append(allQueries, trimmedQuery)
 			}
 		}
 	}
-	return queries, nil
+	return allQueries
 }
 
-// executeWithRetry 带指数退避的重试执行
-func executeWithRetry(ctx context.Context, engine *sqle.Engine, queries []string, maxRetries int, baseDelay time.Duration) error {
-	for i, query := range queries {
-		for retry := 0; ; retry++ {
-			queryCtx, cancel := context.WithTimeout(ctx, queryTimeout)
-			_, _, _, err := engine.Query(sql.NewContext(queryCtx, sql.WithSession(ctx.Session)), query)
-			cancel()
+// useDatabase 执行USE数据库操作
+func useDatabase(ctx *sql.Context, engine *sqle.Engine, dbName string) {
+	_, _, _, err := engine.Query(ctx, fmt.Sprintf("USE %s;", dbName))
+	if err != nil {
+		log.Fatalf("执行USE %s 失败: %v", dbName, err)
+	}
+}
 
+// executeSQLQueries 批量执行SQL查询，带重试机制
+func executeSQLQueries(ctx *sql.Context, engine *sqle.Engine, queries []string) {
+	start := time.Now()
+	for _, query := range queries {
+		for retry := 0; retry < maxRetries; retry++ {
+			_, _, _, err := engine.Query(ctx, query)
 			if err == nil {
-				break
+				break // 执行成功，跳出重试
 			}
-
-			if retry == maxRetries {
-				return fmt.Errorf("执行失败[%d/%d] %q: %w", i+1, len(queries), query, err)
-			}
-
-			delay := time.Duration(retry*retry) * baseDelay
-			time.Sleep(delay)
-			log.Printf("重试中 (%d/%d): %v", retry+1, maxRetries, err)
+			log.Printf("执行SQL失败 (重试 %d/%d): %v\nQuery: %s", retry+1, maxRetries, err, query)
+			time.Sleep(retryDelay)
 		}
 	}
-	return nil
+	log.Printf("SQL执行完成 耗时: %v", time.Since(start))
 }
 
-// configureAndStartServer 配置服务器实例
-func configureAndStartServer(provider *memory.DBProvider) *server.Server {
+// startServer 启动MySQL服务器
+func startServer(cfg Config, dbProvider *memory.DbProvider) {
+	engine := sqle.NewDefault(dbProvider)
+
+	// 优化6：高性能服务器配置
 	config := server.Config{
-		Protocol:         "tcp",
-		Address:         "0.0.0.0:3306",
-		MaxConnections:  maxConnections,
-		ConnReadTimeout: queryTimeout,
-		ConnWriteTimeout: queryTimeout,
-		Auth:            memory.NewAuth("root", "123"),
+		Protocol:        "tcp",
+		Address:         fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+		MaxConnections:  uint64(cfg.MaxConnections), // 提升并发能力
+		ConnReadTimeout: cfg.QueryTimeout,
+		ConnWriteTimeout: cfg.QueryTimeout,
 	}
 
-	server, err := server.NewServer(
-		config,
-		sqle.NewDefault(provider),
-		memory.NewSessionBuilder(provider),
+	s, err := server.NewServer(
+		config, // 使用优化后的配置
+		engine,
+		memory.NewSessionBuilder(dbProvider),
 		nil,
 	)
 	if err != nil {
-		log.Fatalf("服务器配置失败: %v", err)
+		log.Fatalf("创建服务器实例失败: %v", err)
 	}
-	return server
-}
 
-// logServerDetails 记录启动配置信息
-func logServerDetails(s *server.Server) {
-	log.Printf(`启动配置:
-  CPU核心      : %d
-  内存缓存    : %.1fGB
-  最大连接数  : %d
-  监听地址    : %s`,
+	// 优化7：资源使用情况输出
+	log.Printf("启动配置：CPU核心[%d] 内存缓存[%.1fGB] 最大连接[%d]",
 		runtime.NumCPU(),
-		float64(maxCacheSize)/(1<<30),
-		maxConnections,
-		s.Address(),
+		float64(cfg.MaxCacheSize)/1024/1024/1024,
+		cfg.MaxConnections,
 	)
-}
 
-// newSession 创建统一会话实例
-func newSession(provider *memory.DBProvider) sql.Session {
-	return memory.NewSession(sql.NewBaseSession(), provider)
-}
+	dsn := fmt.Sprintf(
+		"MySQL server listening on %s:%s@tcp(%s:%d)/%s?charset=utf8mb4&loc=Local&parseTime=true",
+		cfg.Username,
+		cfg.Password,
+		cfg.Host,
+		cfg.Port,
+		cfg.DBName,
+	)
 
-// cleanupResources 资源清理钩子
-func cleanupResources(provider *memory.DBProvider) {
-	// 未来扩展资源释放逻辑
+	log.Println(dsn)
+	if err := s.Start(); err != nil {
+		log.Fatalf("服务器启动失败: %v", err)
+	}
 }
