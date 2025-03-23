@@ -10,8 +10,8 @@ cd tpcc-mysql/src && make
 
 ## 构建proxysql
 
-指定goalng 版本 1.20.2，见 gobin.sh
-指 github.com/dolthub/go-mysql-server 版本 v0.11.0, go.mod
+指定goalng 版本 1.23.6，见 gobin.sh
+指 github.com/dolthub/go-mysql-server 版本 v0.19.0 当前最新版, go.mod
 
 ```shell script
 go mod tidy 

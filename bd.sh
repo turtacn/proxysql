@@ -16,6 +16,8 @@ exit
 
 
 
+## 下面走容器编译
+
 #docker run --net host --rm -t -i --add-host sangfor.local:192.168.198.1 -v $(pwd):$(pwd) -w $(pwd) -e GIT_SSL_NO_VERIFY=1 -e GO111MODULE=on -e GOSUMDB=off -e GOPRIVATE=sangfor.local -e GOPROXY=https://goproxy.cn,direct -e GOINSECURE=sangfor.local golang:sxf sh $(pwd)/mod.sh
 
 docker run --net host --rm -t -i --add-host sangfor.local:192.168.198.1 -v $(pwd):$(pwd) -w $(pwd) -e GIT_SSL_NO_VERIFY=1 -e GO111MODULE=on -e GOSUMDB=off -e GOPRIVATE=sangfor.local -e GOPROXY=https://goproxy.cn,direct -e GOINSECURE=sangfor.local golang:1.23.6-alpine sh $(pwd)/mod.sh
