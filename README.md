@@ -18,6 +18,11 @@ go mod tidy
 go build -o proxysql main.go
 ```
 
+## 利用Dockerfile run anywhere 
+```shell script
+docker run -ti  -d  -n proxysql jdcloudiaas/turta:prosql_master  
+```
+
 ## 运行proxysql服务（替换mysql）
 
 ```shell script

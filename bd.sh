@@ -9,10 +9,6 @@ export GIT_SSL_NO_VERIFY=1
 
 
 
-go mod tidy
-go mod vendor
-go build -mod=mod -o  proxysql  *.go
-exit
 
 
 
