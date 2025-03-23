@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/dolthub/go-mysql-server/memory"
-	"github.com/dolthub/go-mysql-server/server"
+	"github.com/dolthub/go-mysql-server/server"
 	"github.com/dolthub/go-mysql-server/sql"
 	sqle "github.com/dolthub/go-mysql-server"
 )
