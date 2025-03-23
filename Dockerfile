@@ -1,7 +1,7 @@
 FROM ubuntu:20.04
 
 # 安装运行所需的依赖库
-RUN apt-get update && apt-get install -y libmysqlclient21 libssl1.1 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y vim libmysqlclient21 libssl1.1 && rm -rf /var/lib/apt/lists/*
 
 # 设置工作目录为 /app，此目录中包含 proxysql 可执行文件和 tpcc-mysql 目录
 WORKDIR /app
