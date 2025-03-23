@@ -6,11 +6,12 @@ export LD_LIBRARY_PATH=/usr/local/mysql/lib/mysql/
 # $1: 数据库名称（必选）
 # $2: WH 参数（必选）
 # $3: STEP 值（可选，默认1）
-# $4: 并发数，即 tpcc_load 的 level 数量（可选，默认4）
 DBNAME=$1
 WH=$2
 STEP=${3:-1}
-CONCURRENCY=${4:-4}
+# $4: level part， Usage: tpcc_load -h server_host -P port -d database_name -u mysql_user -p mysql_password -w warehouses -l part -m min_wh -n max_wh
+#* [part]: 1=ITEMS 2=WAREHOUSE 3=CUSTOMER 4=ORDERS
+CONCURRENCY=4
 
 HOST=127.0.0.1
 
