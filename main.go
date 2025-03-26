@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"runtime"
 
 	sqle "github.com/dolthub/go-mysql-server"
 	"github.com/dolthub/go-mysql-server/auth"
@@ -75,4 +76,9 @@ func createTpccDatabase() *memory.Database {
 	}
 	fmt.Println("TPCC database and tables created.")
 	return db
+}
+func init() {
+	// Set the number of Goroutines that can run in parallel.
+	// This is optional but can be beneficial for performance.
+	runtime.GOMAXPROCS(runtime.NumCPU())
 }
